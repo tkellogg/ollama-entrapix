@@ -8,6 +8,8 @@ struct gpt_sampler *gpt_sampler_cinit(
 {
     try
     {
+        fprintf(stderr, "[entrapix] cinit: entrapix_enabled=%d threshold=%.2f\n", params->entrapix_enabled, params->entrapix_threshold);
+
         gpt_sampler_params sparams;
         sparams.top_k = params->top_k;
         sparams.top_p = params->top_p;
@@ -25,6 +27,13 @@ struct gpt_sampler *gpt_sampler_cinit(
         sparams.penalize_nl = params->penalize_nl;
         sparams.seed = params->seed;
         sparams.grammar = params->grammar;
+        sparams.entrapix_enabled = params->entrapix_enabled;
+        sparams.entrapix_threshold = params->entrapix_threshold;
+        sparams.entrapix_varent = params->entrapix_varent;
+
+        fprintf(stderr, "[entrapix] cinit: entrapix_enabled=%d threshold=%.2f\n", params->entrapix_enabled, params->entrapix_threshold);
+        fprintf(stderr, "[entrapix] cinit: copied to sparams: entrapix_enabled=%d threshold=%.2f\n", sparams.entrapix_enabled, sparams.entrapix_threshold);
+
         return gpt_sampler_init(model, sparams);
     }
     catch (const std::exception &err)
@@ -49,6 +58,11 @@ llama_token gpt_sampler_csample(
     int idx)
 {
     return gpt_sampler_sample(sampler, ctx_main, idx);
+}
+
+bool gpt_sampler_cget_is_trap_set(struct gpt_sampler *sampler)
+{
+    return gpt_sampler_get_is_trap_set(sampler);
 }
 
 void gpt_sampler_caccept(

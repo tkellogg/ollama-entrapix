@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Tim Kellogg <timothy.kellogg@gmail.com>
+Date: Sat, 7 Dec 2024 17:03:44 -0500
+Subject: [PATCH] Added entrapix sampler
+
+---
+ common/common.h        |   6 ++-
+ common/sampling.cpp    |  21 ++++++++
+ src/llama-sampling.cpp | 116 +++++++++++++++++++++++++++++++++++++++++
+ src/llama-sampling.h   |  11 ++++
+ 4 files changed, 153 insertions(+), 1 deletion(-)
+
+diff --git a/common/common.h b/common/common.h
+index 8b84cf9a..f64b9d12 100644
+--- a/common/common.h
++++ b/common/common.h
+@@ -137,7 +137,11 @@ struct gpt_sampler_params {
+ 
+     std::vector<llama_logit_bias> logit_bias; // logit biases to apply
+ 
+-    // print the parameters into a string
++    // Entrapix parameters
++    bool   entrapix_enabled      = false;    // enable entrapix sampler
++    float  entrapix_threshold    = 1.2f;     // entropy threshold (lower = more trapping)
++    float  entrapix_varent       = 2.5f;     // variance entropy threshold (lower = more trapping)
++
+     std::string print() const;
+ };
+ 
+diff --git a/common/sampling.cpp b/common/sampling.cpp
+index 3dc7f112..f7c11901 100644
+--- a/common/sampling.cpp
++++ b/common/sampling.cpp
+@@ -5,6 +5,15 @@
+ #include <cmath>
+ #include <unordered_map>
+ 
++// defined in llama-sampling.cpp
++LLAMA_API struct llama_sampler * llama_sampler_init_entrapix(
++    float ent_threshold,
++    float varent_threshold,
++    float temp_low,
++    float temp_high,
++    llama_token eos_token,
++    float eos_threshold);
++
+ // the ring buffer works similarly to std::deque, but with a fixed capacity
+ // TODO: deduplicate with llama-impl.h
+ template<typename T>
+@@ -221,6 +230,18 @@ struct gpt_sampler * gpt_sampler_init(const struct llama_model * model, const st
+         llama_sampler_chain_add(result->chain, llama_sampler_init_greedy());
+     }
+ 
++    // Add entrapix as the final sampler in the chain
++    if (params.entrapix_enabled) {
++        llama_sampler_chain_add(result->chain, llama_sampler_init_entrapix(
++            params.entrapix_threshold,
++            params.entrapix_varent,
++            params.temp > 0.0f ? params.temp : 0.8f,      // Use provided temp or default
++            params.temp > 0.0f ? params.temp * 2.0f : 1.6f,
++            llama_token_eos(model),
++            0.0f
++        ));
++    }
++
+     return result;
+ }
+ 
+diff --git a/src/llama-sampling.cpp b/src/llama-sampling.cpp
+index e255a8fc..e379ea83 100644
+--- a/src/llama-sampling.cpp
++++ b/src/llama-sampling.cpp
+@@ -1644,6 +1644,122 @@ struct llama_sampler * llama_sampler_init_logit_bias(
+     };
+ }
+ 
++// entrapix
++
++struct llama_sampler_entrapix {
++    // in entropix this is "medium_naked_entropy_threshold"
++    const float ent_threshold;
++    // in entropix this is "high_naked_varentropy_threshold"
++    const float varent_threshold;
++    const float temp_low;
++    const float temp_high;
++    const llama_token eos_token;
++    const float eos_threshold;
++};
++
++static const char * llama_sampler_entrapix_name(const struct llama_sampler * /*smpl*/) {
++    return "entrapix";
++}
++
++static void llama_sampler_entrapix_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
++    auto * ctx = (llama_sampler_entrapix *) smpl->ctx;
++
++    // Calculate entropy and variance entropy from the existing probabilities
++    float entropy = 0.0f;
++    float mean_logp = 0.0f;
++    float var_logp = 0.0f;
++
++    // First pass - calculate entropy and mean log prob
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const float p = cur_p->data[i].p;
++        if (p > 0.0f) {
++            const float logp = logf(p);
++            entropy -= p * logp;
++            mean_logp += p * logp;
++        }
++    }
++
++    // Second pass - calculate variance of log probs
++    for (size_t i = 0; i < cur_p->size; ++i) {
++        const float p = cur_p->data[i].p;
++        if (p > 0.0f) {
++            const float logp = logf(p);
++            const float diff = logp - mean_logp;
++            var_logp += p * diff * diff;
++        }
++    }
++
++    // Check if we need to trap based on entropy metrics
++    bool should_trap = false;
++
++    // Check entropy threshold
++    if (entropy < ctx->ent_threshold) {
++        should_trap = true;
++    }
++
++    // Check variance entropy threshold
++    if (var_logp < ctx->varent_threshold) {
++        should_trap = true;
++    }
++
++    // If we need to trap, select the EOG token
++    if (should_trap) {
++        // Find the EOG token index
++        for (size_t i = 0; i < cur_p->size; ++i) {
++            if (cur_p->data[i].id == ctx->eos_token) {
++                cur_p->selected = i;
++                break;
++            }
++        }
++    }
++}
++
++static struct llama_sampler * llama_sampler_entrapix_clone(const struct llama_sampler * smpl) {
++    const auto * ctx = (const llama_sampler_entrapix *) smpl->ctx;
++    return llama_sampler_init_entrapix(
++        ctx->ent_threshold,
++        ctx->varent_threshold,
++        ctx->temp_low,
++        ctx->temp_high,
++        ctx->eos_token,
++        ctx->eos_threshold
++    );
++}
++
++static void llama_sampler_entrapix_free(struct llama_sampler * smpl) {
++    delete (llama_sampler_entrapix *) smpl->ctx;
++}
++
++static struct llama_sampler_i llama_sampler_entrapix_i = {
++    /* .name   = */ llama_sampler_entrapix_name,
++    /* .accept = */ nullptr,
++    /* .apply  = */ llama_sampler_entrapix_apply,
++    /* .reset  = */ nullptr,
++    /* .clone  = */ llama_sampler_entrapix_clone,
++    /* .free   = */ llama_sampler_entrapix_free,
++};
++
++struct llama_sampler * llama_sampler_init_entrapix(
++    float ent_threshold,
++    float varent_threshold,
++    float temp_low,
++    float temp_high,
++    llama_token eos_token,
++    float eos_threshold
++) {
++    return new llama_sampler {
++        /* .iface = */ &llama_sampler_entrapix_i,
++        /* .ctx   = */ new llama_sampler_entrapix {
++            /* .ent_threshold    = */ ent_threshold,
++            /* .varent_threshold = */ varent_threshold,
++            /* .temp_low        = */ temp_low,
++            /* .temp_high       = */ temp_high,
++            /* .eos_token       = */ eos_token,
++            /* .eos_threshold   = */ eos_threshold,
++        },
++    };
++}
++
+ // utils
+ 
+ uint32_t llama_sampler_get_seed(const struct llama_sampler * smpl) {
+diff --git a/src/llama-sampling.h b/src/llama-sampling.h
+index d90b1471..c1567de7 100644
+--- a/src/llama-sampling.h
++++ b/src/llama-sampling.h
+@@ -27,3 +27,14 @@ struct llama_sampler * llama_sampler_init_grammar_impl(
+         const struct llama_vocab & vocab,
+                       const char * grammar_str,
+                       const char * grammar_root);
++
++// entrapix sampler
++LLAMA_API struct llama_sampler * llama_sampler_init_entrapix(
++    float ent_threshold,
++    float varent_threshold,
++    float temp_low,
++    float temp_high,
++    llama_token eos_token,
++    float eos_threshold);
++
++// mirostat sampler

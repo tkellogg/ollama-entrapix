@@ -500,6 +500,12 @@ func (s *Server) processBatch(tokenBatch *llama.Batch, embedBatch *llama.Batch) 
 			continue
 		}
 
+		if seq.samplingCtx.IsTrapSet() {
+			slog.Info("hit trap token", "token", token)
+			s.removeSequence(i, "trap")
+			continue
+		}
+
 		seq.inputs = []input{{token: token}}
 
 		seq.pendingResponses = append(seq.pendingResponses, piece)
@@ -553,24 +559,27 @@ func (s *Server) processBatch(tokenBatch *llama.Batch, embedBatch *llama.Batch) 
 type Options struct {
 	api.Runner
 
-	NumKeep          int      `json:"n_keep"`
-	Seed             int      `json:"seed"`
-	NumPredict       int      `json:"n_predict"`
-	TopK             int      `json:"top_k"`
-	TopP             float32  `json:"top_p"`
-	MinP             float32  `json:"min_p"`
-	TFSZ             float32  `json:"tfs_z"`
-	TypicalP         float32  `json:"typical_p"`
-	RepeatLastN      int      `json:"repeat_last_n"`
-	Temperature      float32  `json:"temperature"`
-	RepeatPenalty    float32  `json:"repeat_penalty"`
-	PresencePenalty  float32  `json:"presence_penalty"`
-	FrequencyPenalty float32  `json:"frequency_penalty"`
-	Mirostat         int      `json:"mirostat"`
-	MirostatTau      float32  `json:"mirostat_tau"`
-	MirostatEta      float32  `json:"mirostat_eta"`
-	PenalizeNewline  bool     `json:"penalize_nl"`
-	Stop             []string `json:"stop"`
+	NumKeep           int      `json:"n_keep"`
+	Seed              int      `json:"seed"`
+	NumPredict        int      `json:"n_predict"`
+	TopK              int      `json:"top_k"`
+	TopP              float32  `json:"top_p"`
+	MinP              float32  `json:"min_p"`
+	TFSZ              float32  `json:"tfs_z"`
+	TypicalP          float32  `json:"typical_p"`
+	RepeatLastN       int      `json:"repeat_last_n"`
+	Temperature       float32  `json:"temperature"`
+	RepeatPenalty     float32  `json:"repeat_penalty"`
+	PresencePenalty   float32  `json:"presence_penalty"`
+	FrequencyPenalty  float32  `json:"frequency_penalty"`
+	Mirostat          int      `json:"mirostat"`
+	MirostatTau       float32  `json:"mirostat_tau"`
+	MirostatEta       float32  `json:"mirostat_eta"`
+	PenalizeNewline   bool     `json:"penalize_nl"`
+	Stop              []string `json:"stop"`
+	Entrapix          bool     `json:"entrapix"`
+	EntrapixThreshold float32  `json:"entrapix_threshold"`
+	EntrapixVarent    float32  `json:"entrapix_varent"`
 }
 
 type ImageData struct {
@@ -580,12 +589,12 @@ type ImageData struct {
 }
 
 type CompletionRequest struct {
+	Options
+
 	Prompt      string      `json:"prompt"`
 	Images      []ImageData `json:"image_data"`
 	Grammar     string      `json:"grammar"`
 	CachePrompt bool        `json:"cache_prompt"`
-
-	Options
 }
 
 type Timings struct {
@@ -602,6 +611,7 @@ type CompletionResponse struct {
 	Model        string  `json:"model,omitempty"`
 	Prompt       string  `json:"prompt,omitempty"`
 	StoppedLimit bool    `json:"stopped_limit,omitempty"`
+	DoneReason   string  `json:"done_reason,omitempty"`
 	PredictedN   int     `json:"predicted_n,omitempty"`
 	PredictedMS  float64 `json:"predicted_ms,omitempty"`
 	PromptN      int     `json:"prompt_n,omitempty"`
@@ -645,6 +655,13 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 	samplingParams.PenalizeNl = req.PenalizeNewline
 	samplingParams.Seed = uint32(req.Seed)
 	samplingParams.Grammar = req.Grammar
+	samplingParams.UseEntrapix = req.Entrapix
+	samplingParams.EntrapixThreshold = req.EntrapixThreshold
+	samplingParams.EntrapixVarent = req.EntrapixVarent
+	slog.Info("entrapix params",
+		"enabled", req.Entrapix,
+		"threshold", req.EntrapixThreshold,
+		"varent", req.EntrapixVarent)
 
 	seq, err := s.NewSequence(req.Prompt, req.Images, NewSequenceParams{
 		numPredict:     req.NumPredict,
@@ -715,6 +732,7 @@ func (s *Server) completion(w http.ResponseWriter, r *http.Request) {
 				if err := json.NewEncoder(w).Encode(&CompletionResponse{
 					Stop:         true,
 					StoppedLimit: seq.doneReason == "limit",
+					DoneReason:   seq.doneReason,
 					Timings: Timings{
 						PromptN:     seq.numPromptInputs,
 						PromptMS:    float64(seq.startGenerationTime.Sub(seq.startProcessingTime).Milliseconds()),

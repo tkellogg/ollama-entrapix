@@ -53,3 +53,10 @@ struct llama_sampler * llama_sampler_init_grammar_impl(
         const struct llama_vocab & vocab,
                       const char * grammar_str,
                       const char * grammar_root);
+
+// Initialize an entropy-based sampler that favors tokens with higher information content
+
+struct llama_sampler * llama_sampler_init_entrapix(
+    float entropy_threshold,
+    float varentropy_threshold,
+    const struct llama_model * model);

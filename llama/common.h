@@ -116,6 +116,7 @@ enum gpt_sampler_type {
     GPT_SAMPLER_TYPE_TFS_Z       = 4,
     GPT_SAMPLER_TYPE_TYPICAL_P   = 5,
     GPT_SAMPLER_TYPE_TEMPERATURE = 6,
+    GPT_SAMPLER_TYPE_ENTRAPIX    = 7,
 };
 
 // dimensionality reduction methods, used by cvector-generator
@@ -156,14 +157,19 @@ struct gpt_sampler_params {
         GPT_SAMPLER_TYPE_TYPICAL_P,
         GPT_SAMPLER_TYPE_TOP_P,
         GPT_SAMPLER_TYPE_MIN_P,
-        GPT_SAMPLER_TYPE_TEMPERATURE
+        GPT_SAMPLER_TYPE_TEMPERATURE,
+        GPT_SAMPLER_TYPE_ENTRAPIX
     };
 
     std::string grammar; // optional BNF-like grammar to constrain sampling
 
     std::vector<llama_logit_bias> logit_bias; // logit biases to apply
 
-    // print the parameters into a string
+    // Entrapix parameters
+    bool   entrapix_enabled      = false;    // enable entrapix sampler
+    float  entrapix_threshold    = 1.2f;     // entropy threshold (lower = more trapping)
+    float  entrapix_varent       = 2.5f;     // variance entropy threshold (lower = more trapping)
+
     std::string print() const;
 };
 

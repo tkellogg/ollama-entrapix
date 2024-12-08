@@ -438,6 +438,28 @@ func RunHandler(cmd *cobra.Command, args []string) error {
 		opts.KeepAlive = &api.Duration{Duration: d}
 	}
 
+	// Get entrapix flags
+	entrapix, err := cmd.Flags().GetBool("entrapix")
+	if err != nil {
+		return err
+	}
+
+	entrapixThreshold, err := cmd.Flags().GetFloat32("entrapix-threshold")
+	if err != nil {
+		return err
+	}
+
+	entrapixVarent, err := cmd.Flags().GetFloat32("entrapix-varent")
+	if err != nil {
+		return err
+	}
+
+	if entrapix {
+		opts.Options["entrapix"] = true
+		opts.Options["entrapix_threshold"] = entrapixThreshold
+		opts.Options["entrapix_varent"] = entrapixVarent
+	}
+
 	prompts := args[1:]
 	// prepend stdin to the prompt if provided
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
@@ -1114,6 +1136,9 @@ func generate(cmd *cobra.Command, opts runOptions) error {
 		content := response.Response
 
 		displayResponse(content, opts.WordWrap, state)
+		if response.DoneReason == "trap" {
+			return fmt.Errorf("agent is confused and has stopped")
+		}
 
 		return nil
 	}
@@ -1352,6 +1377,9 @@ func NewCLI() *cobra.Command {
 	runCmd.Flags().Bool("insecure", false, "Use an insecure registry")
 	runCmd.Flags().Bool("nowordwrap", false, "Don't wrap words to the next line automatically")
 	runCmd.Flags().String("format", "", "Response format (e.g. json)")
+	runCmd.Flags().Bool("entrapix", false, "enable entropy-based sampling")
+	runCmd.Flags().Float32("entrapix-threshold", 1.2, "entropy threshold for token selection")
+	runCmd.Flags().Float32("entrapix-varent", 2.5, "variance entropy threshold for token selection")
 
 	stopCmd := &cobra.Command{
 		Use:     "stop MODEL",

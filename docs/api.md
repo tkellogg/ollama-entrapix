@@ -53,6 +53,8 @@ Advanced parameters (optional):
 - `raw`: if `true` no formatting will be applied to the prompt. You may choose to use the `raw` parameter if you are specifying a full templated prompt in your request to the API
 - `keep_alive`: controls how long the model will stay loaded into memory following the request (default: `5m`)
 - `context` (deprecated): the context parameter returned from a previous request to `/generate`, this can be used to keep a short conversational memory
+- `entrapix`: if `true` enables entropy-based sampling that favors tokens with higher information content
+- `entrapix_threshold`: sets the entropy threshold for token selection (default: 0.5). Higher values (e.g., 0.8) will be more selective, while lower values (e.g., 0.2) will be more permissive
 
 #### Structured outputs
 

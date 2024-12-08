@@ -668,6 +668,7 @@ type completion struct {
 	Prompt       string `json:"prompt"`
 	Stop         bool   `json:"stop"`
 	StoppedLimit bool   `json:"stopped_limit"`
+	DoneReason   string `json:"done_reason"`
 
 	Timings struct {
 		PredictedN  int     `json:"predicted_n"`
@@ -711,29 +712,32 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 	}
 
 	request := map[string]any{
-		"prompt":            req.Prompt,
-		"stream":            true,
-		"n_predict":         req.Options.NumPredict,
-		"n_keep":            req.Options.NumKeep,
-		"main_gpu":          req.Options.MainGPU,
-		"temperature":       req.Options.Temperature,
-		"top_k":             req.Options.TopK,
-		"top_p":             req.Options.TopP,
-		"min_p":             req.Options.MinP,
-		"tfs_z":             req.Options.TFSZ,
-		"typical_p":         req.Options.TypicalP,
-		"repeat_last_n":     req.Options.RepeatLastN,
-		"repeat_penalty":    req.Options.RepeatPenalty,
-		"presence_penalty":  req.Options.PresencePenalty,
-		"frequency_penalty": req.Options.FrequencyPenalty,
-		"mirostat":          req.Options.Mirostat,
-		"mirostat_tau":      req.Options.MirostatTau,
-		"mirostat_eta":      req.Options.MirostatEta,
-		"penalize_nl":       req.Options.PenalizeNewline,
-		"seed":              req.Options.Seed,
-		"stop":              req.Options.Stop,
-		"image_data":        req.Images,
-		"cache_prompt":      true,
+		"prompt":             req.Prompt,
+		"stream":             true,
+		"n_predict":          req.Options.NumPredict,
+		"n_keep":             req.Options.NumKeep,
+		"main_gpu":           req.Options.MainGPU,
+		"temperature":        req.Options.Temperature,
+		"top_k":              req.Options.TopK,
+		"top_p":              req.Options.TopP,
+		"min_p":              req.Options.MinP,
+		"tfs_z":              req.Options.TFSZ,
+		"typical_p":          req.Options.TypicalP,
+		"repeat_last_n":      req.Options.RepeatLastN,
+		"repeat_penalty":     req.Options.RepeatPenalty,
+		"presence_penalty":   req.Options.PresencePenalty,
+		"frequency_penalty":  req.Options.FrequencyPenalty,
+		"mirostat":           req.Options.Mirostat,
+		"mirostat_tau":       req.Options.MirostatTau,
+		"mirostat_eta":       req.Options.MirostatEta,
+		"penalize_nl":        req.Options.PenalizeNewline,
+		"seed":               req.Options.Seed,
+		"stop":               req.Options.Stop,
+		"image_data":         req.Images,
+		"cache_prompt":       true,
+		"entrapix":           req.Options.Entrapix,
+		"entrapix_threshold": req.Options.EntrapixThreshold,
+		"entrapix_varent":    req.Options.EntrapixVarent,
 	}
 
 	// Make sure the server is ready
@@ -845,7 +849,9 @@ func (s *llmServer) Completion(ctx context.Context, req CompletionRequest, fn fu
 
 			if c.Stop {
 				doneReason := "stop"
-				if c.StoppedLimit {
+				if c.DoneReason != "" {
+					doneReason = c.DoneReason
+				} else if c.StoppedLimit {
 					doneReason = "length"
 				}
 

@@ -71,6 +71,8 @@ void                 gpt_sampler_accept(struct gpt_sampler * gsmpl, llama_token 
 void                 gpt_sampler_reset (struct gpt_sampler * gsmpl);
 struct gpt_sampler * gpt_sampler_clone (struct gpt_sampler * gsmpl);
 
+bool gpt_sampler_get_is_trap_set(struct gpt_sampler *sampler);
+
 // arguments can be nullptr to skip printing
 void gpt_perf_print(const struct llama_context * ctx, const struct gpt_sampler * gsmpl);
 

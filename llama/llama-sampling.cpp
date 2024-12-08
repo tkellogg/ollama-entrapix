@@ -1353,7 +1353,7 @@ static struct llama_sampler * llama_sampler_grammar_clone(const struct llama_sam
 }
 
 static void llama_sampler_grammar_free(struct llama_sampler * smpl) {
-    const auto * ctx = (llama_sampler_grammar *) smpl->ctx;
+    const auto * ctx = (const llama_sampler_grammar *) smpl->ctx;
 
     if (ctx->grammar) {
         llama_grammar_free_impl(ctx->grammar);
@@ -1730,4 +1730,82 @@ void llama_perf_sampler_reset(struct llama_sampler * chain) {
     auto * ctx = (struct llama_sampler_chain *) chain->ctx;
 
     ctx->t_sample_us = ctx->n_sample = 0;
+}
+
+// Entrapix sampler implementation
+struct llama_sampler_entrapix {
+    const float entropy_threshold;     // Threshold for token entropy
+    const float varentropy_threshold;  // Threshold for variance of entropy
+    const struct llama_model * model;  // Model reference to get EOS token
+};
+
+static const char * llama_sampler_entrapix_name(const struct llama_sampler * /*smpl*/) {
+    return "entrapix";
+}
+
+static void llama_sampler_entrapix_apply(struct llama_sampler * smpl, llama_token_data_array * cur_p) {
+    const auto * params = (const llama_sampler_entrapix *) smpl->ctx;
+
+    // First pass - calculate entropy and mean log prob
+    float entropy = 0.0f;
+    float mean_logp = 0.0f;
+    for (size_t i = 0; i < cur_p->size; ++i) {
+        const float p = cur_p->data[i].p;
+        if (p > 0.0f) {
+            const float logp = logf(p);
+            entropy -= p * logp;
+            mean_logp += p * logp;
+        }
+    }
+
+    // Second pass - calculate variance of log probs
+    float varentropy = 0.0f;
+    for (size_t i = 0; i < cur_p->size; ++i) {
+        const float p = cur_p->data[i].p;
+        if (p > 0.0f) {
+            const float logp = logf(p);
+            const float diff = logp - mean_logp;
+            varentropy += p * diff * diff;
+        }
+    }
+
+    // Check if both entropy and varentropy are over their thresholds
+    if (entropy > params->entropy_threshold && varentropy > params->varentropy_threshold) {
+        cur_p->is_trap_set = true;
+        printf("### TRAP! Agent is confused and is about to stop; entropy: %f > %f, varentropy: %f > %f\n", 
+            entropy, params->entropy_threshold, varentropy, params->varentropy_threshold);
+        return;
+    }
+    else {
+        printf("[entrapix] entropy: %f, varentropy: %f\n", entropy, varentropy);
+    }
+}
+
+static struct llama_sampler * llama_sampler_entrapix_clone(const struct llama_sampler * smpl) {
+    const auto * params = (const llama_sampler_entrapix *) smpl->ctx;
+    return llama_sampler_init_entrapix(params->entropy_threshold, params->varentropy_threshold, params->model);
+}
+
+static void llama_sampler_entrapix_free(struct llama_sampler * smpl) {
+    delete (llama_sampler_entrapix *) smpl->ctx;
+}
+
+static struct llama_sampler_i llama_sampler_entrapix_i = {
+    /* .name   = */ llama_sampler_entrapix_name,
+    /* .accept = */ nullptr,
+    /* .apply  = */ llama_sampler_entrapix_apply,
+    /* .reset  = */ nullptr,
+    /* .clone  = */ llama_sampler_entrapix_clone,
+    /* .free   = */ llama_sampler_entrapix_free,
+};
+
+struct llama_sampler * llama_sampler_init_entrapix(float entropy_threshold, float varentropy_threshold, const struct llama_model * model) {
+    return new llama_sampler {
+        /* .iface = */ &llama_sampler_entrapix_i,
+        /* .ctx   = */ new llama_sampler_entrapix {
+            /* .entropy_threshold    = */ entropy_threshold,
+            /* .varentropy_threshold = */ varentropy_threshold,
+            /* .model               = */ model,
+        },
+    };
 }

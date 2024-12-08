@@ -80,6 +80,16 @@ type GenerateRequest struct {
 	// Options lists model-specific options. For example, temperature can be
 	// set through this field, if the model supports it.
 	Options map[string]interface{} `json:"options"`
+
+	// Entrapix enables entropy-based sampling that favors tokens with higher information content
+	Entrapix bool `json:"entrapix"`
+
+	// EntrapixThreshold sets the entropy threshold for token selection (default: 0.5)
+	// Higher values (e.g., 0.8) will be more selective, while lower values (e.g., 0.2) will be more permissive
+	EntrapixThreshold float32 `json:"entrapix_threshold"`
+
+	// EntrapixVarent sets the variance entropy threshold for token selection
+	EntrapixVarent float32 `json:"entrapix_varent"`
 }
 
 // ChatRequest describes a request sent by [Client.Chat].
@@ -228,6 +238,10 @@ type Options struct {
 	MirostatEta      float32  `json:"mirostat_eta,omitempty"`
 	PenalizeNewline  bool     `json:"penalize_newline,omitempty"`
 	Stop             []string `json:"stop,omitempty"`
+	// Entrapix parameters
+	Entrapix          bool    `json:"entrapix,omitempty"`
+	EntrapixThreshold float32 `json:"entrapix_threshold,omitempty"`
+	EntrapixVarent    float32 `json:"entrapix_varent,omitempty"`
 }
 
 // Runner options which must be set when the model is loaded into memory
@@ -505,6 +519,7 @@ func (opts *Options) FromMap(m map[string]interface{}) error {
 	}
 
 	for key, val := range m {
+		slog.Info("loading option", "option", key, "value", val)
 		opt, ok := jsonOpts[key]
 		if !ok {
 			slog.Warn("invalid option provided", "option", key)
@@ -591,21 +606,24 @@ func DefaultOptions() Options {
 		NumPredict: -1,
 
 		// set a minimal num_keep to avoid issues on context shifts
-		NumKeep:          4,
-		Temperature:      0.8,
-		TopK:             40,
-		TopP:             0.9,
-		TFSZ:             1.0,
-		TypicalP:         1.0,
-		RepeatLastN:      64,
-		RepeatPenalty:    1.1,
-		PresencePenalty:  0.0,
-		FrequencyPenalty: 0.0,
-		Mirostat:         0,
-		MirostatTau:      5.0,
-		MirostatEta:      0.1,
-		PenalizeNewline:  true,
-		Seed:             -1,
+		NumKeep:           4,
+		Temperature:       0.8,
+		TopK:              40,
+		TopP:              0.9,
+		TFSZ:              1.0,
+		TypicalP:          1.0,
+		RepeatLastN:       64,
+		RepeatPenalty:     1.1,
+		PresencePenalty:   0.0,
+		FrequencyPenalty:  0.0,
+		Mirostat:          0,
+		MirostatTau:       5.0,
+		MirostatEta:       0.1,
+		PenalizeNewline:   true,
+		Seed:              -1,
+		Entrapix:          false,
+		EntrapixThreshold: 1.2,
+		EntrapixVarent:    2.5,
 
 		Runner: Runner{
 			// options set when the model is loaded

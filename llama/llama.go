@@ -641,25 +641,35 @@ type SamplingContext struct {
 }
 
 type SamplingParams struct {
-	TopK           int
-	TopP           float32
-	MinP           float32
-	TfsZ           float32
-	TypicalP       float32
-	Temp           float32
-	RepeatLastN    int
-	PenaltyRepeat  float32
-	PenaltyFreq    float32
-	PenaltyPresent float32
-	Mirostat       int
-	MirostatTau    float32
-	MirostatEta    float32
-	PenalizeNl     bool
-	Seed           uint32
-	Grammar        string
+	TopK              int
+	TopP              float32
+	MinP              float32
+	TfsZ              float32
+	TypicalP          float32
+	Temp              float32
+	RepeatLastN       int
+	PenaltyRepeat     float32
+	PenaltyFreq       float32
+	PenaltyPresent    float32
+	Mirostat          int
+	MirostatTau       float32
+	MirostatEta       float32
+	PenalizeNl        bool
+	Seed              uint32
+	Grammar           string
+	UseEntrapix       bool
+	EntrapixThreshold float32
+	EntrapixVarent    float32
 }
 
 func NewSamplingContext(model *Model, params SamplingParams) (*SamplingContext, error) {
+	slog.Info("creating new sampling context",
+		"entrapix_enabled", params.UseEntrapix,
+		"entrapix_threshold", params.EntrapixThreshold,
+		"top_k", params.TopK,
+		"top_p", params.TopP,
+		"temp", params.Temp)
+
 	var cparams C.struct_gpt_sampler_cparams
 	cparams.top_k = C.int32_t(params.TopK)
 	cparams.top_p = C.float(params.TopP)
@@ -676,6 +686,13 @@ func NewSamplingContext(model *Model, params SamplingParams) (*SamplingContext, 
 	cparams.mirostat_eta = C.float(params.MirostatEta)
 	cparams.penalize_nl = C.bool(params.PenalizeNl)
 	cparams.seed = C.uint32_t(params.Seed)
+	cparams.entrapix_enabled = C.bool(params.UseEntrapix)
+	cparams.entrapix_threshold = C.float(params.EntrapixThreshold)
+	cparams.entrapix_varent = C.float(params.EntrapixVarent)
+
+	slog.Info("sampling params set",
+		"entrapix_enabled", bool(cparams.entrapix_enabled),
+		"entrapix_threshold", float32(cparams.entrapix_threshold))
 
 	grammar := C.CString(params.Grammar)
 	defer C.free(unsafe.Pointer(grammar))
@@ -697,6 +714,10 @@ func (s *SamplingContext) Reset() {
 
 func (s *SamplingContext) Sample(llamaContext *Context, idx int) int {
 	return int(C.gpt_sampler_csample(s.c, llamaContext.c, C.int(idx)))
+}
+
+func (s *SamplingContext) IsTrapSet() bool {
+	return bool(C.gpt_sampler_cget_is_trap_set(s.c))
 }
 
 func (s *SamplingContext) Accept(id int, applyGrammar bool) {

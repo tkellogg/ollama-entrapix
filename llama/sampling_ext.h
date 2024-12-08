@@ -29,6 +29,9 @@ extern "C"
         bool penalize_nl;
         uint32_t seed;
         char *grammar;
+        bool entrapix_enabled;
+        float entrapix_threshold;
+        float entrapix_varent;
     };
 
     struct gpt_sampler *gpt_sampler_cinit(
@@ -42,6 +45,8 @@ extern "C"
         struct llama_context *ctx_main,
         int idx);
 
+    bool gpt_sampler_cget_is_trap_set(struct gpt_sampler *sampler);
+
     void gpt_sampler_caccept(
         struct gpt_sampler *sampler,
         llama_token id,
@@ -52,5 +57,5 @@ extern "C"
 #ifdef __cplusplus
 }
 #endif
-
 #endif // GPT_SAMPLER_EXT_H
+

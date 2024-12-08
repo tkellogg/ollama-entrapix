@@ -121,6 +121,11 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 		return
 	}
 
+	// Initialize options map if it's nil
+	if req.Options == nil {
+		req.Options = make(map[string]interface{})
+	}
+
 	model, err := GetModel(req.Model)
 	if err != nil {
 		switch {
@@ -159,6 +164,7 @@ func (s *Server) GenerateHandler(c *gin.Context) {
 	}
 
 	r, m, opts, err := s.scheduleRunner(c.Request.Context(), req.Model, caps, req.Options, req.KeepAlive)
+	slog.Info("scheduleRunner", "options", opts)
 	if errors.Is(err, errCapabilityCompletion) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("%q does not support generate", req.Model)})
 		return

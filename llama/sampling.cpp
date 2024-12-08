@@ -31,6 +31,8 @@
 #include <cmath>
 #include <unordered_map>
 
+struct llama_sampler * llama_sampler_init_entrapix(float entropy_threshold, float varentropy_threshold, const struct llama_model * model);
+
 // the ring buffer works similarly to std::deque, but with a fixed capacity
 // TODO: deduplicate with llama-impl.h
 template<typename T>
@@ -147,7 +149,7 @@ struct gpt_sampler {
             cur[token_id] = llama_token_data{token_id, logits[token_id], 0.0f};
         }
 
-        cur_p = { cur.data(), cur.size(), -1, false };
+        cur_p = { cur.data(), cur.size(), -1, false, false };
     }
 };
 
@@ -157,10 +159,11 @@ std::string gpt_sampler_params::print() const {
     snprintf(result, sizeof(result),
             "\trepeat_last_n = %d, repeat_penalty = %.3f, frequency_penalty = %.3f, presence_penalty = %.3f\n"
             "\ttop_k = %d, tfs_z = %.3f, top_p = %.3f, min_p = %.3f, typical_p = %.3f, temp = %.3f\n"
-            "\tmirostat = %d, mirostat_lr = %.3f, mirostat_ent = %.3f",
+            "\tmirostat = %d, mirostat_lr = %.3f, mirostat_ent = %.3f, use_entrapix = %s, entrapix_threshold = %.3f",
             penalty_last_n, penalty_repeat, penalty_freq, penalty_present,
             top_k, tfs_z, top_p, min_p, typ_p, temp,
-            mirostat, mirostat_eta, mirostat_tau);
+            mirostat, mirostat_eta, mirostat_tau,
+            entrapix_enabled ? "true" : "false", entrapix_threshold);
 
     return std::string(result);
 }
@@ -218,6 +221,16 @@ struct gpt_sampler * gpt_sampler_init(const struct llama_model * model, const st
                         break;
                     case GPT_SAMPLER_TYPE_TEMPERATURE:
                         llama_sampler_chain_add(result->chain, llama_sampler_init_temp_ext (params.temp, params.dynatemp_range, params.dynatemp_exponent));
+                        break;
+                    case GPT_SAMPLER_TYPE_ENTRAPIX:
+                        fprintf(stderr, "[entrapix] init(%s): enabled with entropy_threshold=%.2f varentropy_threshold=%.2f\n", 
+                            params.entrapix_enabled ? "true" : "false", 
+                            params.entrapix_threshold, 
+                            params.entrapix_varent);
+                        if (params.entrapix_enabled) {
+                            llama_sampler_chain_add(result->chain, 
+                                llama_sampler_init_entrapix(params.entrapix_threshold, params.entrapix_varent, model));
+                        }
                         break;
                     default:
                         GGML_ASSERT(false && "unknown sampler type");
@@ -285,6 +298,10 @@ struct gpt_sampler * gpt_sampler_clone(gpt_sampler * gsmpl) {
         /* .cur    = */ gsmpl->cur,
         /* .cur_p  = */ gsmpl->cur_p,
     };
+}
+
+bool gpt_sampler_get_is_trap_set(struct gpt_sampler *sampler) {
+    return sampler->cur_p.is_trap_set;
 }
 
 void gpt_perf_print(const struct llama_context * ctx, const struct gpt_sampler * gsmpl) {
@@ -398,7 +415,8 @@ char gpt_sampler_type_to_chr(enum gpt_sampler_type cnstr) {
         case GPT_SAMPLER_TYPE_TOP_P:       return 'p';
         case GPT_SAMPLER_TYPE_MIN_P:       return 'm';
         case GPT_SAMPLER_TYPE_TEMPERATURE: return 't';
-        default : return '?';
+        case GPT_SAMPLER_TYPE_ENTRAPIX:    return 'e';
+        default:                           return '?';
     }
 }
 
@@ -410,7 +428,8 @@ std::string gpt_sampler_type_to_str(enum gpt_sampler_type cnstr) {
         case GPT_SAMPLER_TYPE_TOP_P:       return "top_p";
         case GPT_SAMPLER_TYPE_MIN_P:       return "min_p";
         case GPT_SAMPLER_TYPE_TEMPERATURE: return "temperature";
-        default : return "";
+        case GPT_SAMPLER_TYPE_ENTRAPIX:    return "entrapix";
+        default:                           return "";
     }
 }
 
@@ -438,6 +457,7 @@ std::vector<gpt_sampler_type> gpt_sampler_types_from_names(const std::vector<std
         { "tfs-z",       GPT_SAMPLER_TYPE_TFS_Z },
         { "tfs",         GPT_SAMPLER_TYPE_TFS_Z },
         { "temp",        GPT_SAMPLER_TYPE_TEMPERATURE },
+        { "entrapix",    GPT_SAMPLER_TYPE_ENTRAPIX },
     };
 
     std::vector<gpt_sampler_type> samplers;

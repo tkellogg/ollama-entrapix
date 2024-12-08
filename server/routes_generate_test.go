@@ -870,6 +870,67 @@ func TestGenerate(t *testing.T) {
 		checkGenerateResponse(t, w.Body, "test-system", "Abra kadabra!")
 	})
 
+	t.Run("prompt with entrapix options", func(t *testing.T) {
+		w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+			Model:             "test-system",
+			Prompt:            "Hello!",
+			Stream:            &stream,
+			Entrapix:          true,
+			EntrapixThreshold: 0.8,
+			EntrapixVarent:    2.5,
+		})
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		// Check that the options were passed correctly
+		if mock.CompletionRequest.Options == nil {
+			t.Error("expected options to be set")
+		} else {
+			if entrapix, ok := mock.CompletionRequest.Options["entrapix"].(bool); !ok || !entrapix {
+				t.Error("expected entrapix to be true")
+			}
+			if threshold, ok := mock.CompletionRequest.Options["entrapix_threshold"].(float32); !ok || threshold != 0.8 {
+				t.Error("expected entrapix_threshold to be 0.8")
+			}
+			if varent, ok := mock.CompletionRequest.Options["entrapix_varent"].(float32); !ok || varent != 2.5 {
+				t.Error("expected entrapix_varent to be 2.5")
+			}
+		}
+
+		checkGenerateResponse(t, w.Body, "test-system", "Abra kadabra!")
+	})
+
+	t.Run("prompt without entrapix options", func(t *testing.T) {
+		w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+			Model:  "test-system",
+			Prompt: "Hello!",
+			Stream: &stream,
+		})
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		// Check that entrapix options are not set
+		if mock.CompletionRequest.Options == nil {
+			t.Error("expected options to be set")
+		} else {
+			if _, ok := mock.CompletionRequest.Options["entrapix"]; ok {
+				t.Error("expected entrapix to not be set")
+			}
+			if _, ok := mock.CompletionRequest.Options["entrapix_threshold"]; ok {
+				t.Error("expected entrapix_threshold to not be set")
+			}
+			if _, ok := mock.CompletionRequest.Options["entrapix_varent"]; ok {
+				t.Error("expected entrapix_varent to not be set")
+			}
+		}
+
+		checkGenerateResponse(t, w.Body, "test-system", "Abra kadabra!")
+	})
+
 	t.Run("prompt with template", func(t *testing.T) {
 		w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
 			Model:  "test-system",
@@ -951,4 +1012,63 @@ TEMPLATE """{{- if .Suffix }}<PRE> {{ .Prompt }} <SUF>{{ .Suffix }} <MID>
 			t.Errorf("mismatch (-got +want):\n%s", diff)
 		}
 	})
+}
+
+func TestGenerateHandlerEntrapix(t *testing.T) {
+	mock := &MockLLM{}
+	s := &Server{sched: NewScheduler(mock)}
+
+	w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+		Model:             "test-model",
+		Prompt:            "test prompt",
+		Entrapix:          true,
+		EntrapixThreshold: 0.8,
+		EntrapixVarent:    2.5,
+	})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status code %d, got %d", http.StatusOK, w.Code)
+	}
+
+	if mock.CompletionRequest == nil {
+		t.Error("expected options to be set")
+	} else {
+		if !mock.CompletionRequest.Options.Entrapix {
+			t.Error("expected entrapix to be true")
+		}
+		if mock.CompletionRequest.Options.EntrapixThreshold != 0.8 {
+			t.Error("expected entrapix_threshold to be 0.8")
+		}
+		if mock.CompletionRequest.Options.EntrapixVarent != 2.5 {
+			t.Error("expected entrapix_varent to be 2.5")
+		}
+	}
+}
+
+func TestGenerateHandlerEntrapixDisabled(t *testing.T) {
+	mock := &MockLLM{}
+	s := &Server{sched: NewScheduler(mock)}
+
+	w := createRequest(t, s.GenerateHandler, api.GenerateRequest{
+		Model:  "test-model",
+		Prompt: "test prompt",
+	})
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status code %d, got %d", http.StatusOK, w.Code)
+	}
+
+	if mock.CompletionRequest == nil {
+		t.Error("expected options to be set")
+	} else {
+		if mock.CompletionRequest.Options.Entrapix {
+			t.Error("expected entrapix to be false")
+		}
+		if mock.CompletionRequest.Options.EntrapixThreshold != 0 {
+			t.Error("expected entrapix_threshold to be 0")
+		}
+		if mock.CompletionRequest.Options.EntrapixVarent != 0 {
+			t.Error("expected entrapix_varent to be 0")
+		}
+	}
 }
