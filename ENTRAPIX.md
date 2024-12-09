@@ -49,3 +49,14 @@ clients other than the CLI tool.
 
 You should also be able to set these parameters in the modelfile, although I haven't
 tried that yet. I assume that would be the ideal place to set the thresholds.
+
+
+### Use Cases
+I built the concept to try out in [dentropy](https://www.getdentropy.com/). Dentropy is an app
+that helps overactive people keep track of their lives. The thing obout our users is they often
+write notes and have no idea what they meant a few hours later. Naturally, the LLM also has no
+idea what you meant, and it exhibits in the entropy/varentropy landscape. One of the ways we
+handle a `ConfusedAgentError` is to ask the user clarifying followup questions.
+
+However, I imagine it's going to be more common to just do a different query and RAG from a
+different angle. The dev knows best.
