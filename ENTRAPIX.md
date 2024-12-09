@@ -24,6 +24,10 @@ certainly would love to monitor these sorts of events, from an operational persp
 | High Varentropy |  | Uncertainty! `raise ConfusedAgentError()` |
 
 
+# Install
+Uh yeah, you need to [build from scratch](https://github.com/tkellogg/ollama-entrapix/blob/entrapix/docs/development.md), sorry.
+
+
 ## Usage
 
 The CLI tool is wired up correctly. At minimum, the `--entrapix true` flag is needed to
