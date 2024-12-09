@@ -24,11 +24,6 @@ certainly would love to monitor these sorts of events, from an operational persp
 | High Varentropy |  | Uncertainty! `raise ConfusedAgentError()` |
 
 
-*What's with "trap"?* On the CPU level, there's no exceptions. When you get a `DivideByZeroError`
-it just sets a special register, called a trap (you "trap" the error) and the programming
-language translates it into the error reporting mechanism of it's choice (e.g. exceptions).
-I see this process as being similar
-
 
 ## Install
 Uh yeah, you need to [build from scratch](https://github.com/tkellogg/ollama-entrapix/blob/entrapix/docs/development.md), sorry.
